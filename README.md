@@ -1,54 +1,40 @@
 # commit-rate-metric
 
-Re-derives the "commits per workday" metric (baseline vs. current) straight
-from git commit logs — the same underlying source used for the metric
-template submitted to management.
-
-## Quick start
+Commits/day, baseline vs current, for a single representative Mon–Fri
+work week — computed against the GitHub REST API, no cloning.
 
 ```bash
-python3 commit_rate.py \
-  --repos-file repos.txt \
-  --author hlarsson@unity.edu --author unity-hallie \
-  --range baseline:2024-02-19:2024-12-23 \
-  --range current:2026-01-05:2026-08-27
+python3 commit_rate.py --org Unity-Environmental-University \
+  --author unity-hallie \
+  --range baseline:2024-05-06:2024-05-10 \
+  --range current:2026-07-06:2026-07-10
 ```
-
-Prints the filled METRIC TEMPLATE, e.g.:
 
 ```
 METRIC TEMPLATE (repeat for up to 3)
 Task or output: Commits to UEU repositories from my account
-No-AI baseline: 2.2 commits per workday (2024)
-Expected outcome with Claude: 13.2 commits per workday (2026, current — measured, not projected)
-Where this number comes from: git commit logs across 15 repositories ...
+No-AI baseline: 5.2 commits/day
+Expected outcome with Claude: 33.8 commits/day
+Where this number comes from: git log --all --no-merges, author = unity-hallie, May 6–10 2024
+vs Jul 6–10 2026. Repos = top 3 by total commit count among those active that week: baseline =
+lxd-tools + lxd-tools-build; current = penelope + scher + ueu-dean-extension
 ```
 
-## Two-week rolling check
+## The rule
 
-```bash
-python3 commit_rate.py --repos-file repos.txt \
-  --author hlarsson@unity.edu --author unity-hallie --since 2w --detail
-```
+For each date range: check every repo in the org (via API) for commits
+by `--author` (a GitHub login) in that window. Rank the repos that had
+any activity by their **total historical commit count** — a proxy for
+how substantial the codebase is, independent of the window being
+measured, so there's no circularity. Keep the top N (default 3), sum
+just those repos' commits in the window, divide by weekdays.
 
-## Detailed output
+A single GitHub login is sufficient: the REST `author=` filter matches
+by account, so it already includes every email linked to that account
+(verified: `author=unity-hallie` and `author=hlarsson@unity.edu`
+return identical commit sets on this org's repos).
 
-Add `--detail` to any invocation for a full breakdown: commits and workdays
-per range, three ways of averaging (mean / median / geomean-of-active-weeks
-— see the docstring in `commit_rate.py` for when each is the right tool),
-and a per-repository commit count.
+`--detail` prints the full breakdown — which repos qualified, how many
+commits each contributed.
 
-## First run
-
-The first run clones any `owner/name` entries in `repos.txt` that aren't
-already present locally (into `~/.cache/commit-rate-metric/repos` by
-default — override with `--clone-dir`). Subsequent runs reuse the clones;
-re-run `git pull` in them yourself to pick up new commits, or delete the
-cache dir to force a fresh clone.
-
-## Why "mean commits/workday" and not something fancier
-
-See the docstring at the top of `commit_rate.py`. Short version: it's the
-one number that doesn't depend on picking which days count as "active,"
-so two different people re-running this script against the same repos
-get the same answer.
+Requires `gh auth login`.
