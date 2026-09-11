@@ -1,0 +1,16 @@
+# One repo per line: local path or "owner/name" (cloned automatically if missing).
+Unity-Environmental-University/agent-frames
+Unity-Environmental-University/lxd-tools-build
+Unity-Environmental-University/lxd-tools
+Unity-Environmental-University/pathetic-governance
+Unity-Environmental-University/qigong-for-claude
+Unity-Environmental-University/qigong-for-penelope
+Unity-Environmental-University/scher-stacks
+Unity-Environmental-University/scher
+Unity-Environmental-University/ueu_canvas
+Unity-Environmental-University/penelope
+Unity-Environmental-University/svelte-php-chatbot
+Unity-Environmental-University/penelope-course
+Unity-Environmental-University/rhizome
+Unity-Environmental-University/tasking
+Unity-Environmental-University/GhostProtocol
