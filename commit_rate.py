@@ -46,6 +46,24 @@ WHY THIS SHAPE
     the repos that actually mattered that week, is a number a
     reviewer can sanity-check by eye and reproduce by hand in a couple
     of minutes — that reproducibility is the point.
+
+WHY NOT THE FASTER contributionsCollection GRAPHQL ENDPOINT
+
+    GitHub exposes a pre-aggregated per-repo commit count
+    (`user.contributionsCollection.commitContributionsByRepository`)
+    that would replace the whole per-repo REST scan below with one
+    call. Do not switch to it: verified against this org's data, it
+    silently omits commits to PRIVATE repositories from the per-repo
+    breakdown (confirmed: every repo it returned was public; the one
+    private repo checked — with more commits that week than all the
+    public ones combined — was completely absent, with no error and
+    restrictedContributionsCount reporting 0). This is GitHub's
+    documented private-contribution privacy behavior, not a bug, but
+    it makes the endpoint wrong by construction for an org where the
+    real work lives in private repos. The slower per-repo REST scan
+    below (`/repos/{owner}/{repo}/commits?author=...`) does not have
+    this gap — verified to return identical results to a full local
+    `git log --all --author=...` clone-based check.
 """
 import argparse
 import datetime
@@ -53,8 +71,10 @@ import subprocess
 import sys
 import zoneinfo
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 ET = zoneinfo.ZoneInfo("America/New_York")
+SCRIPT_URL = "https://github.com/unity-hallie/commit-rate-metric"
 
 
 def parse_range(spec):
@@ -135,18 +155,24 @@ def workdays_between(lo, hi):
     return n
 
 
-def analyze_range(org, authors, lo, hi, top_n):
+def analyze_range(org, authors, lo, hi, top_n, workers=16):
     slugs = list_org_repos(org)
     print(f"  checking {len(slugs)} repos for commits by {'/'.join(authors)} "
-          f"in {lo}..{hi}...", file=sys.stderr)
+          f"in {lo}..{hi} ({workers} in parallel)...", file=sys.stderr)
     active = {}
-    for slug in slugs:
-        n = commits_by_author_in_window(slug, authors, lo, hi)
-        if n > 0:
-            active[slug] = n
-    print(f"  {len(active)} repos had >=1 matching commit that week; "
-          f"ranking by total commit count...", file=sys.stderr)
-    ranked = sorted(active.keys(), key=total_commit_count, reverse=True)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(commits_by_author_in_window, slug, authors, lo, hi): slug
+                   for slug in slugs}
+        for fut in as_completed(futures):
+            slug = futures[fut]
+            n = fut.result()
+            if n > 0:
+                active[slug] = n
+    print(f"  {len(active)} repos had >=1 matching commit; "
+          f"ranking by total commit count ({workers} in parallel)...", file=sys.stderr)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        totals = dict(zip(active.keys(), pool.map(total_commit_count, active.keys())))
+    ranked = sorted(active.keys(), key=lambda s: totals[s], reverse=True)
     top = ranked[:top_n]
     commits = sum(active[s] for s in top)
     wd = workdays_between(lo, hi)
@@ -196,11 +222,11 @@ def main():
     base, cur = results[0], results[1]
     print("METRIC TEMPLATE (repeat for up to 3)")
     print(f"Task or output: {args.template}")
-    print(f"No-AI baseline: {base['per_day']:.1f} commits/day")
-    print(f"Expected outcome with Claude: {cur['per_day']:.1f} commits/day")
-    print(f"Where this number comes from: git log --all --no-merges, author = {' / '.join(args.author)}, "
-          f"{base['lo']:%b %-d}–{base['hi']:%-d %Y} vs {cur['lo']:%b %-d}–{cur['hi']:%-d %Y}. "
-          f"Repos = top {args.top_n} by total commit count among those active that week: "
+    print(f"No-AI baseline: {base['per_day']:.1f} commits/day ({base['lo']} to {base['hi']})")
+    print(f"Expected outcome with Claude: {cur['per_day']:.1f} commits/day ({cur['lo']} to {cur['hi']})")
+    print(f"Where this number comes from: {SCRIPT_URL} — "
+          f"author = {' / '.join(args.author)}. "
+          f"Repos = top {args.top_n} by total commit count among those with a matching commit in range: "
           + "; ".join(f"{r['label']} = " + " + ".join(s.split('/')[-1] for s, _ in r["repos"])
                        for r in results)
           )
